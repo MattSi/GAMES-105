@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 
+
 def load_motion_data(bvh_file_path):
     """part2 辅助函数，读取bvh文件"""
     with open(bvh_file_path, 'r') as f:
@@ -9,11 +10,11 @@ def load_motion_data(bvh_file_path):
             if lines[i].startswith('Frame Time'):
                 break
         motion_data = []
-        for line in lines[i+1:]:
+        for line in lines[i + 1:]:
             data = [float(x) for x in line.split()]
             if len(data) == 0:
                 break
-            motion_data.append(np.array(data).reshape(1,-1))
+            motion_data.append(np.array(data).reshape(1, -1))
         motion_data = np.concatenate(motion_data, axis=0)
     return motion_data
 
@@ -30,9 +31,80 @@ def part1_calculate_T_pose(bvh_file_path):
     Tips:
         joint_name顺序应该和bvh一致
     """
-    joint_name = None
-    joint_parent = None
-    joint_offset = None
+    joint_name = []
+    joint_parent = []
+    joint_offset = []
+    stack_ = []
+
+    with open(bvh_file_path, 'r') as f:
+        line = f.readline().strip() # First line HIERARCHY
+        while f.readable():
+            line = f.readline().strip()
+            if line.startswith("MOTION"):
+                break
+            # 1. KeyWord, Root/Joint
+            #    Read the next line, suppose to be {
+            #    压栈
+            if line.upper().startswith("ROOT"):
+                jname = line.split()[1]
+                joint_name.append(jname)
+                joint_parent.append(-1)
+                stack_.append((jname, len(joint_parent)-1))
+                line = f.readline()
+                continue
+
+            if line.upper().startswith("JOINT"):
+                jname = line.split()[1]
+                joint_name.append(jname)
+                parentTuple = stack_[len(stack_)-1]
+                joint_parent.append(parentTuple[1])
+                stack_.append((jname, len(joint_parent)-1))
+                line = f.readline()
+                continue
+
+
+            # 2. OFFSET, CHANNELS
+            #
+            if line.upper().startswith("OFFSET"):
+                line = line[6:]
+                data = [float(x) for x in line.split()]
+                if len(data) == 0:
+                    break
+                joint_offset.append(np.array(data).reshape(1, -1))
+                continue
+
+            if line.upper().startswith("CHANNELS"):
+                continue
+
+            # 3. End Site
+            #    name is parent name + '_end'
+            if line.startswith("End Site"):
+                parent = stack_[len(stack_)-1]
+                myName = parent[0] + "_end"
+                joint_name.append(myName)
+                parentId = parent[1]
+                joint_parent.append(parentId)
+
+                f.readline()  # skip '{'
+                line = f.readline().strip()
+                line = line[6:]
+                data = [float(x) for x in line.split()]
+                if len(data) == 0:
+                    break
+                joint_offset.append(np.array(data).reshape(1, -1))
+                f.readline()
+                continue
+
+
+            # 4. }
+            # 弹栈
+            if line.startswith("}"):
+                stack_.pop()
+                line = ''
+                continue
+
+        pass
+
     return joint_name, joint_parent, joint_offset
 
 
