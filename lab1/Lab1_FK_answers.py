@@ -101,7 +101,55 @@ def part1_calculate_T_pose(bvh_file_path):
     return joint_name, joint_parent, joint_offset
 
 
+
 def part2_forward_kinematics(joint_name, joint_parent, joint_offset, motion_data, frame_id):
+    """请填写以下内容
+      输入: part1 获得的关节名字，父节点列表，偏移量列表
+          motion_data: np.ndarray，形状为(N,X)的numpy数组，其中N为帧数，X为Channel数
+          frame_id: int，需要返回的帧的索引
+      输出:
+          joint_positions: np.ndarray，形状为(M, 3)的numpy数组，包含着所有关节的全局位置
+          joint_orientations: np.ndarray，形状为(M, 4)的numpy数组，包含着所有关节的全局旋转(四元数)
+      Tips:
+          1. joint_orientations的四元数顺序为(x, y, z, w)
+          2. from_euler时注意使用大写的XYZ
+      """
+    ###### 用欧拉角实现
+    joint_positions = np.zeros((len(joint_name), 3))
+    joint_orientations = np.zeros((len(joint_name), 4))
+    buffer = motion_data[frame_id]
+    idx_index = 0
+
+    for idx, offset in enumerate(joint_offset):
+        curr_joint_name = joint_name[idx]
+        parent_index = joint_parent[idx]
+        # print("%d, %s, %d"%(idx, joint_name[idx], idx_index))
+        if curr_joint_name.startswith("RootJoint"):
+            joint_positions[idx] = buffer[:3]
+            joint_orientations[idx] = R.from_euler('XYZ', buffer[3:6], degrees=True).as_quat()
+            idx_index += 6
+            pass
+
+        elif curr_joint_name.endswith("_end"):
+            po = R.from_quat(joint_orientations[parent_index]).as_matrix()
+            joint_positions[idx] = joint_positions[parent_index] + np.dot(po, offset)
+            pass
+
+        else:
+            rotation = R.from_euler('XYZ', buffer[idx_index: idx_index + 3], degrees=True)
+            rotation_p = R.from_quat(joint_orientations[parent_index])
+            tmp = (rotation_p * rotation).as_quat()
+            joint_orientations[idx] = tmp
+
+            joint_positions[idx] = np.dot(R.from_quat(joint_orientations[parent_index]).as_matrix(), offset) + joint_positions[parent_index]
+            idx_index += 3
+        pass
+
+    return joint_positions, joint_orientations
+
+
+
+def part2_forward_kinematic2(joint_name, joint_parent, joint_offset, motion_data, frame_id):
     """请填写以下内容
     输入: part1 获得的关节名字，父节点列表，偏移量列表
         motion_data: np.ndarray，形状为(N,X)的numpy数组，其中N为帧数，X为Channel数
@@ -113,52 +161,36 @@ def part2_forward_kinematics(joint_name, joint_parent, joint_offset, motion_data
         1. joint_orientations的四元数顺序为(x, y, z, w)
         2. from_euler时注意使用大写的XYZ
     """
-    joint_positions = np.zeros(len(joint_name)*3).reshape(-1,3)
-    joint_orientations = np.zeros(len(joint_name)*4).reshape(-1,4)
+    joint_positions = np.zeros((len(joint_name), 3))
+    joint_orientations = np.zeros((len(joint_name), 4))
     buffer = motion_data[frame_id]
-    currentAnkle = 0
-    buffer_index = 0
-    C=3 # Channel is 3, 3D rotation
-
-    # 1. First, calculate Root offset and Rotation
-    p = buffer[buffer_index:buffer_index + C]
-    #joint_positions[currentAnkle] = buffer[buffer_index:buffer_index + C]
-    buffer_index += 3
-    pQuat = R.from_rotvec(p).as_quat()
-    quat = R.from_euler('XYZ', buffer[buffer_index:buffer_index + C], degrees=True).as_quat() # 旋转欧拉姐转换为4元数
-    TargetQuat = quat*pQuat*quat.conjugate()
-    pAfterRot = R.from_quat(TargetQuat).as_rotvec()
-    joint_positions[currentAnkle] =pAfterRot
-    joint_orientations[currentAnkle] = TargetQuat
-
-    currentAnkle += 1
-    buffer_index += 3
-
-    # 2. Iterate this process to find out every ankle's position and direction
-    for i in range(len(joint_name)):
-        if i == 0:
-            continue
-            pass
-        # Find parent id
-        print("Debug: %d, %s, %d" % (i, joint_name[i], buffer_index))
-        parentId = joint_parent[i]
-        parentPosition = joint_positions[parentId]
-
-        if(joint_name[i].endswith("_end")):  #叶子节点，不旋转，只增加偏移量
-            joint_positions[i] = parentPosition + joint_offset[i]
-            continue
+    idx_index = 0
+    for idx, offset in enumerate(joint_offset):
+        curr_joint_name = joint_name[idx]
+        parent_index = joint_parent[idx]
+        #print("%d, %s, %d"%(idx, joint_name[idx], idx_index))
+        if curr_joint_name.startswith("RootJoint"):
+            joint_positions[idx] = buffer[:3]
+            joint_orientations[idx] = R.from_euler('XYZ', buffer[3:6], degrees=True).as_quat()
+            idx_index += 6
             pass
 
-        lQuat = R.from_rotvec(joint_offset[i]).as_quat()
-        R_prev = joint_orientations[parentId]
-        R_current = R.from_euler('XYZ', buffer[buffer_index:buffer_index+C], degrees=True).as_quat()
-        R_global = R_prev*R_current
-        qAfterRotQuat = R_global * lQuat * R_global.conjugate()
-        qAfterRotVec = R.from_quat(qAfterRotQuat).as_rotvec()
-        P = qAfterRotVec + parentPosition
-        joint_positions[i] = P
-        joint_orientations[i] = qAfterRotQuat
-        buffer_index += 3
+        elif curr_joint_name.endswith("_end"):
+            po = joint_orientations[parent_index]
+            q_result = po * np.concatenate((offset, [0])) * po.conj()
+            joint_positions[idx] = joint_positions[parent_index] + q_result[:3]
+            #idx_index +=3
+            pass
+
+        else:
+            rotation = R.from_euler('XYZ', buffer[idx_index: idx_index+3], degrees=True).as_matrix()
+            rotation_p = R.from_quat(joint_orientations[parent_index]).as_matrix()
+            tmp = rotation_p.dot(rotation)
+            joint_orientations[idx] = R.from_matrix(tmp).as_quat()
+            joint_positions[idx] = rotation_p.dot(offset) + joint_positions[parent_index]
+            idx_index +=3
+            pass
+        pass
 
     return joint_positions, joint_orientations
 
