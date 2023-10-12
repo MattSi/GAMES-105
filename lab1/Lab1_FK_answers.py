@@ -113,8 +113,53 @@ def part2_forward_kinematics(joint_name, joint_parent, joint_offset, motion_data
         1. joint_orientations的四元数顺序为(x, y, z, w)
         2. from_euler时注意使用大写的XYZ
     """
-    joint_positions = None
-    joint_orientations = None
+    joint_positions = np.zeros(len(joint_name)*3).reshape(-1,3)
+    joint_orientations = np.zeros(len(joint_name)*4).reshape(-1,4)
+    buffer = motion_data[frame_id]
+    currentAnkle = 0
+    buffer_index = 0
+    C=3 # Channel is 3, 3D rotation
+
+    # 1. First, calculate Root offset and Rotation
+    p = buffer[buffer_index:buffer_index + C]
+    #joint_positions[currentAnkle] = buffer[buffer_index:buffer_index + C]
+    buffer_index += 3
+    pQuat = R.from_rotvec(p).as_quat()
+    quat = R.from_euler('XYZ', buffer[buffer_index:buffer_index + C], degrees=True).as_quat() # 旋转欧拉姐转换为4元数
+    TargetQuat = quat*pQuat*quat.conjugate()
+    pAfterRot = R.from_quat(TargetQuat).as_rotvec()
+    joint_positions[currentAnkle] =pAfterRot
+    joint_orientations[currentAnkle] = TargetQuat
+
+    currentAnkle += 1
+    buffer_index += 3
+
+    # 2. Iterate this process to find out every ankle's position and direction
+    for i in range(len(joint_name)):
+        if i == 0:
+            continue
+            pass
+        # Find parent id
+        print("Debug: %d, %s, %d" % (i, joint_name[i], buffer_index))
+        parentId = joint_parent[i]
+        parentPosition = joint_positions[parentId]
+
+        if(joint_name[i].endswith("_end")):  #叶子节点，不旋转，只增加偏移量
+            joint_positions[i] = parentPosition + joint_offset[i]
+            continue
+            pass
+
+        lQuat = R.from_rotvec(joint_offset[i]).as_quat()
+        R_prev = joint_orientations[parentId]
+        R_current = R.from_euler('XYZ', buffer[buffer_index:buffer_index+C], degrees=True).as_quat()
+        R_global = R_prev*R_current
+        qAfterRotQuat = R_global * lQuat * R_global.conjugate()
+        qAfterRotVec = R.from_quat(qAfterRotQuat).as_rotvec()
+        P = qAfterRotVec + parentPosition
+        joint_positions[i] = P
+        joint_orientations[i] = qAfterRotQuat
+        buffer_index += 3
+
     return joint_positions, joint_orientations
 
 
