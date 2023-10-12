@@ -19,7 +19,6 @@ def load_motion_data(bvh_file_path):
     return motion_data
 
 
-
 def part1_calculate_T_pose(bvh_file_path):
     """请填写以下内容
     输入： bvh 文件路径
@@ -33,11 +32,11 @@ def part1_calculate_T_pose(bvh_file_path):
     """
     joint_name = []
     joint_parent = []
-    joint_offset = []
     stack_ = []
+    offset_tmp = []
 
     with open(bvh_file_path, 'r') as f:
-        line = f.readline().strip() # First line HIERARCHY
+        line = f.readline().strip()  # First line HIERARCHY
         while f.readable():
             line = f.readline().strip()
             if line.startswith("MOTION"):
@@ -49,28 +48,25 @@ def part1_calculate_T_pose(bvh_file_path):
                 jname = line.split()[1]
                 joint_name.append(jname)
                 joint_parent.append(-1)
-                stack_.append((jname, len(joint_parent)-1))
+                stack_.append((jname, len(joint_parent) - 1))
                 line = f.readline()
                 continue
 
             if line.upper().startswith("JOINT"):
                 jname = line.split()[1]
                 joint_name.append(jname)
-                parentTuple = stack_[len(stack_)-1]
+                parentTuple = stack_[len(stack_) - 1]
                 joint_parent.append(parentTuple[1])
-                stack_.append((jname, len(joint_parent)-1))
+                stack_.append((jname, len(joint_parent) - 1))
                 line = f.readline()
                 continue
-
 
             # 2. OFFSET, CHANNELS
             #
             if line.upper().startswith("OFFSET"):
                 line = line[6:]
                 data = [float(x) for x in line.split()]
-                if len(data) == 0:
-                    break
-                joint_offset.append(np.array(data).reshape(1, -1))
+                offset_tmp.append(data)
                 continue
 
             if line.upper().startswith("CHANNELS"):
@@ -79,7 +75,7 @@ def part1_calculate_T_pose(bvh_file_path):
             # 3. End Site
             #    name is parent name + '_end'
             if line.startswith("End Site"):
-                parent = stack_[len(stack_)-1]
+                parent = stack_[len(stack_) - 1]
                 myName = parent[0] + "_end"
                 joint_name.append(myName)
                 parentId = parent[1]
@@ -89,12 +85,9 @@ def part1_calculate_T_pose(bvh_file_path):
                 line = f.readline().strip()
                 line = line[6:]
                 data = [float(x) for x in line.split()]
-                if len(data) == 0:
-                    break
-                joint_offset.append(np.array(data).reshape(1, -1))
+                offset_tmp.append(data)
                 f.readline()
                 continue
-
 
             # 4. }
             # 弹栈
@@ -104,7 +97,7 @@ def part1_calculate_T_pose(bvh_file_path):
                 continue
 
         pass
-
+    joint_offset = np.array(offset_tmp).reshape(-1, 3)
     return joint_name, joint_parent, joint_offset
 
 
