@@ -205,46 +205,77 @@ def part3_retarget_func(T_pose_bvh_path, A_pose_bvh_path):
         两个bvh的joint name顺序可能不一致哦(
         as_euler时也需要大写的XYZ
     """
-    joint_name_t, joint_parent_t, joint_offset_t = part1_calculate_T_pose(T_pose_bvh_path)
-    joint_name_a, joint_parent_a, joint_offset_a = part1_calculate_T_pose(A_pose_bvh_path)
+    def index_bone_to_channel(index, flag):
+        if flag == 't':
+            end_bone_index = end_bone_index_t
+        else:
+            end_bone_index = end_bone_index_a
+        for i in range(len(end_bone_index)):
+            if end_bone_index[i] > index:
+                return index - i
+        return index - len(end_bone_index)
+    t_name, t_parent, t_offset = part1_calculate_T_pose(T_pose_bvh_path)
+    a_name, a_parent, a_offset = part1_calculate_T_pose(A_pose_bvh_path)
 
-    joint_name_t_ankle = []
-    joint_name_a_ankle = []
-    map_aTot = {}
-    Q_aTot = np.zeros((len(joint_parent_a), 4))
+    end_bone_index_t = []
+    for i in range(len(t_name)):
+        if t_name[i].endswith('_end'):
+            end_bone_index_t.append(i)
 
+    end_bone_index_a = []
+    for i in range(len(a_name)):
+        if a_name[i].endswith('_end'):
+            end_bone_index_a.append(i)
 
+    Q = np.zeros((len(a_name),3))
+    print(t_name)
+    print(a_name)
 
-    for idx, jname in enumerate(joint_name_t):
-        if jname.endswith('_end'):
+    for idx, aname_item in enumerate(a_name):
+        t_idx = t_name.index(aname_item)
+        #print("aname: %s, A: %d, T: %d" % (aname_item, idx, t_idx))
+        if np.array_equal(t_offset[t_idx], a_offset[idx]):
             continue
-        joint_name_t_ankle.append(jname)
+        print("Name: %s, A order: %d, T order: %d" % (aname_item, idx, t_idx))
 
-    for idx, jname in enumerate(joint_name_a):
-        if jname.endswith('_end'):
-            continue
-        joint_name_a_ankle.append(jname)
-
-    for idx, jname in enumerate(joint_name_t_ankle):
-        map_aTot[jname] = idx
-
-
+        p1 = a_offset[idx]
+        p2 = t_offset[t_idx]
+        r_axis = np.cross(p1, p2)
+        n_r_axis = np.linalg.norm(r_axis)
+        u = r_axis / n_r_axis
+        theta = np.arccos(np.dot(p1,p2)/ (np.linalg.norm(p1) * np.linalg.norm(p2)))
+        eula = R.from_rotvec(u*theta).as_euler('XYZ', degrees=True)
+        Q[a_parent[idx]] = eula
+        print(a_offset[a_parent[idx]], t_offset[t_parent[t_idx]], eula)
+        pass
+    print(Q)
 
     motion_data = load_motion_data(A_pose_bvh_path)
-    for i in range(len(motion_data)):
-        buffer = motion_data[i][3:]
-        for j, jname in enumerate(joint_name_a_ankle):
-            if jname.startswith('RootJoint'):
-                continue
-            if map_aTot[jname] == j:
-                continue
+    for m_i in range(len(motion_data)):
+        frame = motion_data[m_i]
+        curr_frame = np.empty(frame.shape[0])
+        curr_frame[:3] = frame[:3]
 
-            jj = map_aTot[jname]
-            tmp = buffer[j*3:j*3+3]
-            buffer[j*3:j*3+3] = buffer[jj*3:jj*3+3]
-            buffer[jj*3:jj*3+3] = tmp
+        for t_i in range(len(t_name)):
+            cur_bone = t_name[t_i]
+            a_i = a_name.index(cur_bone)
+            if cur_bone.endswith('_end'):
+                continue
+            channel_t_i = index_bone_to_channel(t_i, 't')
+            channel_a_i = index_bone_to_channel(a_i, 'a')
 
-        pass
+            # retargeting
+            local_rotation = frame[3+channel_a_i*3: 3+channel_a_i*3 + 3]
+            if not np.array_equal(Q[a_i], [0,0,0]):
+                pi_a_i = a_parent[a_i]
+                Q_pi = R.from_euler('XYZ', Q[pi_a_i], degrees=True)
+                Q_i = R.from_euler('XYZ', Q[a_i], degrees=True)
+                print(cur_bone, '  T:', t_i, ' A:', a_i, Q[a_i], ' Pname:', a_name[pi_a_i], Q_pi.as_euler('XYZ',degrees=True), Q_i.as_euler('XYZ',degrees=True) )
+                local_rotation = (Q_pi * R.from_euler('XYZ', local_rotation, degrees=True) * Q_i.inv()).as_euler('XYZ', degrees=True)
+
+            curr_frame[3+channel_t_i*3: 3+channel_t_i*3 +3] = local_rotation
+        motion_data[m_i] = curr_frame
+        print('------------------------------------')
     return motion_data
 
 
@@ -313,8 +344,9 @@ def part3_retarget_func2(T_pose_bvh_path, A_pose_bvh_path):
                 Q_i = get_t2a_offset(cur_bone)
                 local_rotation = (Q_pi * R.from_euler('XYZ', local_rotation, degrees=True) * Q_i.inv()).as_euler('XYZ',
                                                                                                                  degrees=True)
+                print(cur_bone, '  T:', t_i, ' A:', a_i, ' Pname:', p_bone_name, Q_pi.as_euler('XYZ',degrees=True), Q_i.as_euler('XYZ', degrees=True))
             cur_frame[3 + channel_t_i * 3: 6 + channel_t_i * 3] = local_rotation
-
+        print('---------------------------------')
         motion_data[m_i] = cur_frame
 
     return motion_data
